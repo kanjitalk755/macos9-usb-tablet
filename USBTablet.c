@@ -136,8 +136,10 @@ static OSErr Install() {
 }
 
 static void Uninstall() {
-	(*sDev->pHIDRemoveReportHandler)(sCon);
-	(*sDev->pHIDCloseDevice)(sCon);
+	if (sDev && sCon) {
+		(*sDev->pHIDRemoveReportHandler)(sCon);
+		(*sDev->pHIDCloseDevice)(sCon);
+	}
 	if (sReport) HIDCloseReportDescriptor(sReport);
 }
 
@@ -156,7 +158,7 @@ int main(void) {
 		if (sDev->pHIDGetReport) (*sDev->pHIDGetReport)(sCon, kHIDInputReport, 0, ReportHandler, 0);
 		while (1) {
 			EventRecord e = { 0 };
-			if (WaitNextEvent(everyEvent, &e, 10, nil) && doEvent(&e)) break;
+			if (WaitNextEvent(everyEvent, &e, -1, nil) && doEvent(&e)) break;
 		}
 	}
 	Uninstall();
