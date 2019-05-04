@@ -62,6 +62,7 @@ static int doEvent(EventRecord *e) {
 			return doMouseDown(e);
 		case keyDown: case autoKey:
 			if (e->modifiers & cmdKey) return doMenuCommand(MenuKey(e->message & charCodeMask));
+			break;
 		case kHighLevelEvent:
 			AEProcessAppleEvent(e);
 			break;
@@ -71,10 +72,9 @@ static int doEvent(EventRecord *e) {
 
 static void ReportHandler(void *r, UInt32 len, UInt32 rc) {
 #pragma unused(rc)
-	if (len == 6) {
-		CursorDevice *c = nil;
-		CursorDeviceNextDevice(&c);
-		if (!c) return;
+	CursorDevice *c = nil;
+	CursorDeviceNextDevice(&c);
+	if (c && len == 6) {
 		SInt32 x, y;
 		if (!HIDGetUsageValue(kHIDInputReport, 1, 0, 48, &x, sReport, r, len) &&
 			!HIDGetUsageValue(kHIDInputReport, 1, 0, 49, &y, sReport, r, len)) {
