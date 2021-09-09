@@ -4,3 +4,5 @@
 
 The project file was made by CodeWarrior Pro 6.  
 To build, change file creator of `USBTablet.prj` to 'CWIE' and double click.
+
+Do not add `via=pmu` to the QEMU argument `-M` as it will not work properly.
