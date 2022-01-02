@@ -4,6 +4,7 @@
 
 The project file was made by CodeWarrior Pro 6.  
 To build:
+1. Expand `icon.rsrc.sit`
 1. Change file creator of `USBTabletRSRC.prj` and `USBTabletINIT.prj` to 'CWIE'.
 1. Open `USBTabletRSRC.prj` and build.
 1. Open `USBTabletINIT.prj` and build.
