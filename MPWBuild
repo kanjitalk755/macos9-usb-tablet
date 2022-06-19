@@ -6,6 +6,8 @@ PPCAsm -o :Build:nkprint.s.x nkprint.s
 MrC -opt size -o :Build:USBTablet.c.x USBTablet.c
 
 PPCLink -w -xm sharedlibrary ∂
+	-export TheUSBDriverDescription,TheClassDriverPluginDispatchTable ∂
+	-t ndrv -c usbd ∂
 	-o :Build:USBTablet ∂
 	"{SharedLibraries}InterfaceLib" ∂
 	"{SharedLibraries}USBManagerLib" ∂

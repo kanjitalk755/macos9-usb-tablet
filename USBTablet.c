@@ -1,80 +1,153 @@
-#include <lowmem.h>
+#include <Events.h>
 #include <USB.h>
-#include <HID.h>
-#include <CursorDevices.h>
+#include <Types.h>
 
-static HIDDeviceDispatchTablePtr sDev;
-static HIDPreparsedDataRef sReport;
-static HIDDeviceConnectionRef sCon;
+#include "nkprintf.h"
 
-static void ReportHandler(void *r, UInt32 len, UInt32 rc) {
-#pragma unused(rc)
-	CursorDevice *c = nil;
-	CursorDeviceNextDevice(&c);
-	if (c && len == 6) {
-		static UInt32 l;
-		HIDUsageAndPage u;
-		UInt32 b, uSize = 1;
-		SInt32 x, y;
-		if (!HIDGetUsageValue(kHIDInputReport, 1, 0, 48, &x, sReport, r, len) &&
-			!HIDGetUsageValue(kHIDInputReport, 1, 0, 49, &y, sReport, r, len)) {
-			Rect rect = (*GetGrayRgn())->rgnBBox;
-			CursorDeviceMoveTo(c, rect.right * x >> 15, rect.bottom * y >> 15);
+enum {
+	stateInit,
+	stateConfigureInterface,
+	stateFindNextPipe,
+	stateIntRead,
+};
+
+OSStatus returnNoErr(void);
+OSStatus interfaceInitialize(UInt32 interfaceNum, USBInterfaceDescriptorPtr pInterface, USBDeviceDescriptorPtr pDevice, USBInterfaceRef interfaceRef);
+void stateMachine(USBPB *pb);
+
+UInt8 ifnum;
+
+USBPB pb;
+
+USBPB pbClean = {
+	NULL,           // qLink
+	0,              // qType
+	sizeof(USBPB),  // pbLength ?ensures we are wired in memory
+	0x0100,         // pbVersion
+	0, 0,           // reserved
+	0,              // usbStatus
+	stateMachine,   // usbCompletion
+	stateInit,      // usbRefcon
+};
+
+unsigned char report[16];
+unsigned char prevButton;
+
+USBDriverDescription TheUSBDriverDescription = {
+	// Signature info
+	kTheUSBDriverDescriptionSignature,
+	kInitialUSBDriverDescriptor,
+
+	// Device Info
+	0x0627,                                 // vendor = QEMU
+	0x0001,                                 // product = QEMU mouse/tablet
+	0,                                      // version of product = not device specific
+	0,                                      // protocol = not device specific
+
+	// Interface Info
+	0,                                      // Configuration Value
+	0,                                      // Interface Number
+	3,                                      // Interface Class: HID
+	kUSBNoInterfaceSubClass,                // Interface SubClass: 0 or 1 is fine
+	kUSBNoInterfaceProtocol,                // Interface Protocol: neither kbd nor mouse
+
+	// Driver Info
+	"\pQEMUTab",                            // Driver name for Name Registry
+	0,                                      // Device Class  (from USBDeviceDefines.h)
+	0,                                      // Device Subclass
+	0x01, 0x00, finalStage, 0x00,           // version of driver
+
+	// Driver Loading Info
+	kUSBInterfaceMatchOnly,                 // Flags
+};
+
+USBClassDriverPluginDispatchTable TheClassDriverPluginDispatchTable = {
+	kClassDriverPluginVersion,              // Version of this structure
+	(void *)returnNoErr,                    // Hardware Validation Procedure
+	NULL,                                   // Initialization Procedure
+	interfaceInitialize,                    // Interface Initialization Procedure
+	(void *)returnNoErr,                    // Finalization Procedure
+	NULL,                                   // Driver Notification Procedure
+};
+
+OSStatus returnNoErr(void) {
+	return noErr;
+}
+
+OSStatus interfaceInitialize(UInt32 interfaceNum, USBInterfaceDescriptorPtr pInterface, USBDeviceDescriptorPtr pDevice, USBInterfaceRef interfaceRef) {
+	(void)interfaceNum;
+	(void)pDevice;
+
+	pbClean.usbReference = interfaceRef;
+	ifnum = pInterface->interfaceNumber;
+	stateMachine(&pb);
+	return noErr;
+}
+
+void stateMachine(USBPB *_pb) {
+	(void)_pb; // use global pb instead
+
+	//nkprintf("stateMachine usbRefcon=%d usbStatus=%d\n", pb.usbRefcon, pb.usbStatus);
+
+	switch (pb.usbRefcon) {
+	case stateInit:
+		pb = pbClean;
+		pb.usbRefcon = stateConfigureInterface;
+		USBConfigureInterface(&pb);
+		break;
+
+	case stateConfigureInterface:
+		pb = pbClean;
+		pb.usbRefcon = stateFindNextPipe;
+
+		pb.usbFlags = kUSBIn;
+		pb.usbClassType = kUSBInterrupt;
+
+		USBFindNextPipe(&pb);
+
+	case stateFindNextPipe:
+		// Future calls will ask for the pipe reference
+		pbClean.usbReference = pb.usbReference;
+		// fall through
+
+	case stateIntRead:
+		//nkprintf("%08x %08x\n", *(long *)report, *(long *)(report + 4));
+
+		if (pb.usbStatus == noErr) {
+			unsigned long point;
+
+			// byte 5 is a signed scroll amount
+
+			point = ((((unsigned long)report[4] << 8) | report[3]) * *(unsigned short *)0xc22 >> 15 << 16) |
+				((((unsigned long)report[2] << 8) | report[1]) * *(unsigned short *)0xc20 >> 15);
+
+			*(unsigned long *)0x828 = point; // MTemp
+			*(unsigned long *)0x82c = point; // RawMouse
+
+			*(char *)0x8ce = *(char *)0x8cf; // CrsrNew = CrsrCouple
+
+			if (!report[0] != !prevButton) {
+				EvQEl *event;
+
+				*(unsigned char *)0x172 = report[0] ? 0 : 0x80;
+				PPostEvent(report[0] ? mouseDown : mouseUp, 0, &event);
+
+				// Right-click becomes control-click
+				if (report[0] & 2) {
+					event->evtQModifiers |= 0x1000;
+				}
+
+				prevButton = report[0];
+			}
 		}
-		b = !HIDGetButtons(kHIDInputReport, 0, &u, &uSize, sReport, r, len) &&
-			uSize == 1 && u.usage == 1 && u.usagePage == 9;
-		if (!l && b) CursorDeviceButtonDown(c);
-		else if (l && !b) CursorDeviceButtonUp(c);
-		l = b;
+
+		pb = pbClean;
+		pb.usbRefcon = stateIntRead;
+		pb.usbBuffer = report;
+		pb.usbReqCount = sizeof report;
+		pb.usb.cntl.WIndex = ifnum;
+
+		USBIntRead(&pb);
+		break;
 	}
-	if (sDev->pHIDCallPreviousReportHandler && sCon) 
-		(*sDev->pHIDCallPreviousReportHandler)(sCon, r, len);
-}
-
-static OSErr FindDevice() {
-	OSErr err;
-	USBDeviceRef dev = kNoDeviceRef;
-	do {
-		CFragSymbolClass s;
-		THz currentZone;
-		CFragConnectionID c;
-		err = USBGetNextDeviceByClass(&dev, &c, kUSBHIDClass, kUSBAnySubClass, kUSBAnyProtocol);
-		if (err) return err;
-		currentZone = GetZone();
-		SetZone(SystemZone());
-		err = FindSymbol(c, "\pTheHIDDeviceDispatchTable", (Ptr *)&sDev, &s);
-		SetZone(currentZone);
-	} while (err);
-	return noErr;
-}
-
-static OSErr Prepare() {
-	UInt32 len = 0;
-	UInt8 *r;
-	OSErr err = (*sDev->pHIDGetHIDDescriptor)(kUSBReportDesc, 0, nil, &len);
-	if (err) return err;
-	r = (UInt8 *)NewPtrClear(len);
-	if (!r) return MemError();
-	err = (*sDev->pHIDGetHIDDescriptor)(kUSBReportDesc, 0, r, &len);
-	if (!err) err = HIDOpenReportDescriptor(r, len, &sReport, kHIDFlag_StrictErrorChecking);
-	DisposePtr((Ptr)r);
-	return err;
-}
-
-static OSErr Install() {
-	HIDDeviceConnectionRef tmp;
-	OSErr err = (*sDev->pHIDOpenDevice)(&tmp, kHIDPerm_ReadWriteShared, 0);
-	if (err) return err;
-	err = (*sDev->pHIDInstallReportHandler)(tmp, 0, ReportHandler, 0);
-	if (err) {
-		(*sDev->pHIDCloseDevice)(tmp);
-		return err;
-	}
-	sCon = tmp;
-	return noErr;
-}
-
-void main(void) {
-	if (!FindDevice() && !Prepare() && !Install() && sDev->pHIDGetReport)
-		(*sDev->pHIDGetReport)(sCon, kHIDInputReport, 0, ReportHandler, 0);
 }
