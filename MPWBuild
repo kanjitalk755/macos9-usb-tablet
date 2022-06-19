@@ -1,0 +1,18 @@
+Set Exit 1
+NewFolder Build ≥Dev:Null || ()
+
+PPCAsm -o :Build:nkprint.s.x nkprint.s
+
+MrC -opt size -o :Build:USBTablet.c.x USBTablet.c
+
+PPCLink -w -xm sharedlibrary ∂
+	-o :Build:USBTablet ∂
+	"{SharedLibraries}InterfaceLib" ∂
+	"{SharedLibraries}USBManagerLib" ∂
+	"{SharedLibraries}USBServicesLib" ∂
+	"{SharedLibraries}HIDLib" ∂
+	"{SharedLibraries}StdCLib" ∂
+	"{PPCLibraries}PPCCRuntime.o" ∂
+	"{PPCLibraries}CursorDevicesGlue.o" ∂
+	:Build:USBTablet.c.x ∂
+	:Build:nkprint.s.x
