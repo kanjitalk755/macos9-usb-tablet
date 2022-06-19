@@ -1,0 +1,49 @@
+Set Exit 1
+:MPWBuild
+
+MrC -opt size -proto strict -o :Build:DevTreeLoader.c.x DevTreeLoader.c
+
+PPCLink -xm sharedlibrary ∂
+	-w -init init ∂
+	-o :Build:DevTreeLoader ∂
+	"{SharedLibraries}InterfaceLib" ∂
+	"{SharedLibraries}StdCLib" ∂
+	"{PPCLibraries}PPCCRuntime.o" ∂
+	:Build:DevTreeLoader.c.x ∂
+	:Build:nkprint.s.x
+
+Catenate :Build:USBTablet >>:Build:DevTreeLoader
+
+# Compile the compressor
+For Compiler in SC C
+	{Compiler} -o :Build:LZSS.C.o -model far LZSS.C && Break
+End
+
+Link -model far ∂
+	-t MPST -c 'MPS ' ∂
+	-o :Build:LZSS ∂
+	"{Libraries}MacRuntime.o" ∂
+	"{Libraries}Interface.o" ∂
+	"{Libraries}IntEnv.o" ∂
+	"{CLibraries}StdCLib.o" ∂
+	:Build:LZSS.C.o
+
+# Shrink the binary
+:Build:LZSS e :Build:DevTreeLoader :Build:DevTreeLoader.lzss >Dev:Null
+
+# Compile the argument generator
+For Compiler in SC C
+	{Compiler} -o :Build:ArgGenerator.c.o -model far ArgGenerator.c && Break
+End
+
+Link -model far ∂
+	-t MPST -c 'MPS ' ∂
+	-o :Build:ArgGenerator ∂
+	"{Libraries}MacRuntime.o" ∂
+	"{Libraries}Interface.o" ∂
+	"{Libraries}IntEnv.o" ∂
+	"{CLibraries}StdCLib.o" ∂
+	:Build:ArgGenerator.c.o
+
+# Shrink the binary
+:Build:ArgGenerator LoaderScript.fs :Build:DevTreeLoader.lzss
