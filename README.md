@@ -10,3 +10,8 @@ To build:
 1. Open `USBTabletINIT.prj` and build.
 
 Do not add `via=pmu` to the QEMU argument `-M` as it will not work properly.
+
+
+Here's another technique with a similar purpose:
+
+https://github.com/elliotnunn/macos9-usb-tablet
